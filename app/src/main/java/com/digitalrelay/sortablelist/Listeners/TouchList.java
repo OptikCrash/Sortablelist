@@ -1,6 +1,9 @@
 package com.digitalrelay.sortablelist.Listeners;
 
-import android.widget.ListView;
+import android.os.Handler;
+import android.os.Looper;
+import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.RecyclerView;
 
 /*
  * Copyright (C) 2008 The Android Open Source Project
@@ -38,9 +41,10 @@ import android.widget.AdapterView;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import com.digitalrelay.sortablelist.Adapters.SortableAdapter;
 import com.digitalrelay.sortablelist.R;
 
-public class TouchInterceptor extends ListView {
+public class TouchList extends RecyclerView {
     private ImageView mDragView;
     private WindowManager mWindowManager;
     private WindowManager.LayoutParams mWindowParams;
@@ -76,7 +80,7 @@ public class TouchInterceptor extends ListView {
     private int mItemHeightHalf;
     private Drawable mTrashcan;
 
-    public TouchInterceptor(Context context, AttributeSet attrs) {
+    public TouchList(Context context, AttributeSet attrs) {
         super(context, attrs);
         SharedPreferences pref = context.getSharedPreferences("Music", 0);
         mRemoveMode = pref.getInt("deletemode", -1);
@@ -89,63 +93,67 @@ public class TouchInterceptor extends ListView {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        if (mRemoveListener != null && mGestureDetector == null) {
-            if (mRemoveMode == FLING) {
-                mGestureDetector = new GestureDetector(getContext(), new SimpleOnGestureListener() {
-                    @Override
-                    public boolean onFling(
-                            MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
-                        if (mDragView != null) {
-                            if (velocityX > 1000) {
-                                Rect r = mTempRect;
-                                mDragView.getDrawingRect(r);
-                                if (e2.getX() > r.right * 2 / 3) {
-                                    // fast fling right with release near the right edge of the
-                                    // screen
-                                    stopDragging();
-                                    mRemoveListener.remove(mSrcDragPos);
-                                    unExpandViews(true);
+        LayoutManager lm = getLayoutManager();
+        if (lm instanceof LinearLayoutManager) {
+            LinearLayoutManager llm = (LinearLayoutManager) lm;
+            if (mRemoveListener != null && mGestureDetector == null) {
+                if (mRemoveMode == FLING) {
+                    mGestureDetector = new GestureDetector(getContext(), new SimpleOnGestureListener() {
+                        @Override
+                        public boolean onFling(
+                                MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                            if (mDragView != null) {
+                                if (velocityX > 1000) {
+                                    Rect r = mTempRect;
+                                    mDragView.getDrawingRect(r);
+                                    if (e2.getX() > r.right * 2 / 3) {
+                                        // fast fling right with release near the right edge of the
+                                        // screen
+                                        stopDragging();
+                                        mRemoveListener.remove(mSrcDragPos);
+                                        unExpandViews(true);
+                                    }
                                 }
+                                // flinging while dragging should have no effect
+                                return true;
                             }
-                            // flinging while dragging should have no effect
-                            return true;
+                            return false;
                         }
-                        return false;
-                    }
-                });
+                    });
+                }
             }
-        }
-        if (mDragListener != null || mDropListener != null) {
-            switch (ev.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    int x = (int) ev.getX();
-                    int y = (int) ev.getY();
-                    int itemnum = pointToPosition(x, y);
-                    if (itemnum == AdapterView.INVALID_POSITION) {
+            if (mDragListener != null || mDropListener != null) {
+                switch (ev.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        int x = (int) ev.getX();
+                        int y = (int) ev.getY();
+                        int itemnum = getChildAdapterPosition(findChildViewUnder(x, y));
+                        if (itemnum == AdapterView.INVALID_POSITION) {
+                            break;
+                        }
+                        TextView item = (TextView) getChildAt(itemnum - llm.findFirstCompletelyVisibleItemPosition());
+                        mDragPointX = x - item.getLeft();
+                        mDragPointY = y - item.getTop();
+                        mXOffset = ((int) ev.getRawX()) - x;
+                        mYOffset = ((int) ev.getRawY()) - y;
+                        // The left side of the item is the grabber for dragging the item
+                        if (item.getRight() - x < 64) {
+                            item.setDrawingCacheEnabled(true);
+                            // Create a copy of the drawing cache so that it does not get recycled
+                            // by the framework when the list tries to clean up memory
+                            Bitmap bitmap = Bitmap.createBitmap(item.getDrawingCache());
+                            startDragging(bitmap, x, y);
+                            mDragPos = itemnum;
+                            mSrcDragPos = mDragPos;
+                            mHeight = getHeight();
+                            int touchSlop = mTouchSlop;
+                            mUpperBound = Math.min(y - touchSlop, mHeight / 3);
+                            mLowerBound = Math.max(y + touchSlop, mHeight * 2 / 3);
+                            return false;
+                        }
+                        stopDragging();
                         break;
-                    }
-                    TextView item = (TextView) getChildAt(itemnum - getFirstVisiblePosition());
-                    mDragPointX = x - item.getLeft();
-                    mDragPointY = y - item.getTop();
-                    mXOffset = ((int) ev.getRawX()) - x;
-                    mYOffset = ((int) ev.getRawY()) - y;
-                    // The left side of the item is the grabber for dragging the item
-                    if (item.getRight() - x < 64) {
-                        item.setDrawingCacheEnabled(true);
-                        // Create a copy of the drawing cache so that it does not get recycled
-                        // by the framework when the list tries to clean up memory
-                        Bitmap bitmap = Bitmap.createBitmap(item.getDrawingCache());
-                        startDragging(bitmap, x, y);
-                        mDragPos = itemnum;
-                        mSrcDragPos = mDragPos;
-                        mHeight = getHeight();
-                        int touchSlop = mTouchSlop;
-                        mUpperBound = Math.min(y - touchSlop, mHeight / 3);
-                        mLowerBound = Math.max(y + touchSlop, mHeight * 2 / 3);
-                        return false;
-                    }
-                    stopDragging();
-                    break;
+                }
             }
         }
         return super.onInterceptTouchEvent(ev);
@@ -156,25 +164,29 @@ public class TouchInterceptor extends ListView {
      * need to, so implement a slightly different version.
      */
     private int myPointToPosition(int x, int y) {
-        if (y < 0) {
-            // when dragging off the top of the screen, calculate position
-            // by going back from a visible item
-            int pos = myPointToPosition(x, y + mItemHeightNormal);
-            if (pos > 0) {
-                return pos - 1;
+        LayoutManager lm = getLayoutManager();
+        if (lm instanceof LinearLayoutManager) {
+            LinearLayoutManager llm = (LinearLayoutManager) lm;
+            if (y < 0) {
+                // when dragging off the top of the screen, calculate position
+                // by going back from a visible item
+                int pos = myPointToPosition(x, y + mItemHeightNormal);
+                if (pos > 0) {
+                    return pos - 1;
+                }
             }
-        }
 
-        Rect frame = mTempRect;
-        final int count = getChildCount();
-        for (int i = count - 1; i >= 0; i--) {
-            final View child = getChildAt(i);
-            child.getHitRect(frame);
-            if (frame.contains(x, y)) {
-                return getFirstVisiblePosition() + i;
+            Rect frame = mTempRect;
+            final int count = getChildCount();
+            for (int i = count - 1; i >= 0; i--) {
+                final View child = getChildAt(i);
+                child.getHitRect(frame);
+                if (frame.contains(x, y)) {
+                    return llm.findFirstCompletelyVisibleItemPosition() + i;
+                }
             }
         }
-        return INVALID_POSITION;
+        return AdapterView.INVALID_POSITION;
     }
 
     private int getItemForPosition(int y) {
@@ -204,35 +216,53 @@ public class TouchInterceptor extends ListView {
     /*
      * Restore size and visibility for all listitems
      */
-    private void unExpandViews(boolean deletion) {
-        for (int i = 0;; i++) {
-            View v = getChildAt(i);
-            if (v == null) {
-                if (deletion) {
-                    // HACK force update of mItemCount
-                    int position = getFirstVisiblePosition();
-                    int y = getChildAt(0).getTop();
-                    setAdapter(getAdapter());
-                    setSelectionFromTop(position, y);
-                    // end hack
-                }
-                try {
-                    layoutChildren(); // force children to be recreated where needed
-                    v = getChildAt(i);
-                } catch (IllegalStateException ex) {
-                    // layoutChildren throws this sometimes, presumably because we're
-                    // in the process of being torn down but are still getting touch
-                    // events
-                }
+    private void unExpandViews(final boolean deletion) {
+        LayoutManager lm = getLayoutManager();
+        if (lm instanceof LinearLayoutManager) {
+            final LinearLayoutManager llm = (LinearLayoutManager) lm;
+
+            for (int i = 0;; i++) {
+                View v = getChildAt(i);
                 if (v == null) {
-                    return;
+                    if (deletion) {
+                        // HACK force update of mItemCount
+                        int position = llm.findFirstCompletelyVisibleItemPosition();
+                        int y = getChildAt(0).getTop();
+//                        setAdapter(getAdapter());
+                        llm.scrollToPositionWithOffset(position, y);
+//                        setSelectionFromTop(position, y);
+                        // end hack
+                    }
+                    try {
+//                        getAdapter().notifyDataSetChanged();
+//                        layoutChildren(); // force children to be recreated where needed
+                        v = getChildAt(i);
+                    } catch (IllegalStateException ex) {
+                        // layoutChildren throws this sometimes, presumably because we're
+                        // in the process of being torn down but are still getting touch
+                        // events
+                        ex.printStackTrace();
+                    }
+                    if (v == null) {
+                        Handler h = new Handler(Looper.getMainLooper());
+                        h.post(new Runnable() {
+                            @Override
+                            public void run() {
+                               TouchList.this.getAdapter().notifyDataSetChanged();
+                            }
+                        });
+//                        this.getAdapter().notifyDataSetChanged();
+                        return;
+                    }
                 }
+                ViewGroup.LayoutParams params = v.getLayoutParams();
+                params.height = mItemHeightNormal;
+                v.setLayoutParams(params);
+                v.setVisibility(View.VISIBLE);
             }
-            ViewGroup.LayoutParams params = v.getLayoutParams();
-            params.height = mItemHeightNormal;
-            v.setLayoutParams(params);
-            v.setVisibility(View.VISIBLE);
+
         }
+
     }
 
     /* Adjust visibility and size to make it appear as though
@@ -248,51 +278,58 @@ public class TouchInterceptor extends ListView {
      * below the current insertpoint.
      */
     private void doExpansion() {
-        int childnum = mDragPos - getFirstVisiblePosition();
-        if (mDragPos > mSrcDragPos) {
-            childnum++;
-        }
-        int numheaders = getHeaderViewsCount();
-
-        View first = getChildAt(mSrcDragPos - getFirstVisiblePosition());
-        for (int i = 0;; i++) {
-            View vv = getChildAt(i);
-            if (vv == null) {
-                break;
+        LayoutManager lm = getLayoutManager();
+        if (lm instanceof LinearLayoutManager) {
+            LinearLayoutManager llm = (LinearLayoutManager) lm;
+            int childnum = mDragPos - llm.findFirstCompletelyVisibleItemPosition();
+            if (mDragPos > mSrcDragPos) {
+                childnum++;
             }
+//            int numheaders = getHeaderViewsCount();
 
-            int height = mItemHeightNormal;
-            int visibility = View.VISIBLE;
-            if (mDragPos < numheaders && i == numheaders) {
-                // dragging on top of the header item, so adjust the item below
-                // instead
+            View first = getChildAt(mSrcDragPos - llm.findFirstCompletelyVisibleItemPosition());
+            for (int i = 0;; i++) {
+                View vv = getChildAt(i);
+                if (vv == null) {
+                    break;
+                }
+
+                int height = mItemHeightNormal;
+                int visibility = View.VISIBLE;
+//                if (mDragPos < numheaders && i == numheaders) {
+//                    // dragging on top of the header item, so adjust the item below
+//                    // instead
+//                    if (vv.equals(first)) {
+//                        visibility = View.INVISIBLE;
+//                    } else {
+//                        height = mItemHeightExpanded;
+//                    }
+//                } else
                 if (vv.equals(first)) {
-                    visibility = View.INVISIBLE;
-                } else {
-                    height = mItemHeightExpanded;
+                    // processing the item that is being dragged
+                    if (mDragPos == mSrcDragPos || llm.getPosition(vv) == getAdapter().getItemCount() - 1) {
+                        // hovering over the original location
+                        visibility = View.INVISIBLE;
+                    } else {
+                        // not hovering over it
+                        // Ideally the item would be completely gone, but neither
+                        // setting its size to 0 nor settings visibility to GONE
+                        // has the desired effect.
+                        height = 1;
+                    }
                 }
-            } else if (vv.equals(first)) {
-                // processing the item that is being dragged
-                if (mDragPos == mSrcDragPos || getPositionForView(vv) == getCount() - 1) {
-                    // hovering over the original location
-                    visibility = View.INVISIBLE;
-                } else {
-                    // not hovering over it
-                    // Ideally the item would be completely gone, but neither
-                    // setting its size to 0 nor settings visibility to GONE
-                    // has the desired effect.
-                    height = 1;
-                }
-            } else if (i == childnum) {
-                if (mDragPos >= numheaders && mDragPos < getCount() - 1) {
-                    height = mItemHeightExpanded;
-                }
+//                else if (i == childnum) {
+//                    if (mDragPos >= numheaders && mDragPos < getAdapter().getItemCount() - 1) {
+//                        height = mItemHeightExpanded;
+//                    }
+//                }
+                ViewGroup.LayoutParams params = vv.getLayoutParams();
+                params.height = height;
+                vv.setLayoutParams(params);
+                vv.setVisibility(visibility);
             }
-            ViewGroup.LayoutParams params = vv.getLayoutParams();
-            params.height = height;
-            vv.setLayoutParams(params);
-            vv.setVisibility(visibility);
         }
+
     }
 
     @Override
@@ -314,7 +351,7 @@ public class TouchInterceptor extends ListView {
                         }
                         unExpandViews(true);
                     } else {
-                        if (mDropListener != null && mDragPos >= 0 && mDragPos < getCount()) {
+                        if (mDropListener != null && mDragPos >= 0 && mDragPos < getAdapter().getItemCount()) {
                             mDropListener.drop(mSrcDragPos, mDragPos);
                         }
                         unExpandViews(false);
@@ -337,22 +374,30 @@ public class TouchInterceptor extends ListView {
                         }
                         int speed = 0;
                         adjustScrollBounds(y);
+                        LayoutManager lm = getLayoutManager();
                         if (y > mLowerBound) {
-                            // scroll the list up a bit
-                            if (getLastVisiblePosition() < getCount() - 1) {
-                                speed = y > (mHeight + mLowerBound) / 2 ? 16 : 4;
-                            } else {
-                                speed = 1;
+                            if (lm instanceof LinearLayoutManager) {
+                                LinearLayoutManager llm = (LinearLayoutManager) lm;
+                                // scroll the list up a bit
+                                if (llm.findLastCompletelyVisibleItemPosition() < getAdapter().getItemCount() - 1) {
+                                    speed = y > (mHeight + mLowerBound) / 2 ? 16 : 4;
+                                } else {
+                                    speed = 1;
+                                }
                             }
                         } else if (y < mUpperBound) {
-                            // scroll the list down a bit
-                            speed = y < mUpperBound / 2 ? -16 : -4;
-                            if (getFirstVisiblePosition() == 0
-                                    && getChildAt(0).getTop() >= getPaddingTop()) {
-                                // if we're already at the top, don't try to scroll, because
-                                // it causes the framework to do some extra drawing that messes
-                                // up our animation
-                                speed = 0;
+                            if (lm instanceof LinearLayoutManager) {
+                                LinearLayoutManager llm = (LinearLayoutManager) lm;
+                                // scroll the list down a bit
+                                speed = y < mUpperBound / 2 ? -16 : -4;
+                                if (llm.findFirstCompletelyVisibleItemPosition() == 0
+                                        && getChildAt(0).getTop() >= getPaddingTop()) {
+                                    // if we're already at the top, don't try to scroll, because
+                                    // it causes the framework to do some extra drawing that messes
+                                    // up our animation
+                                    speed = 0;
+                                }
+
                             }
                         }
                         if (speed != 0) {
@@ -468,4 +513,5 @@ public class TouchInterceptor extends ListView {
     public interface DragListener { void drag(int from, int to); }
     public interface DropListener { void drop(int from, int to); }
     public interface RemoveListener { void remove(int which); }
+
 }

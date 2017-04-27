@@ -10,8 +10,8 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context="com.digitalrelay.sortablelist.SortableListViewActivity">
 
-    <com.digitalrelay.sortablelist.Listeners.TouchInterceptor
-        android:id="@android:id/list"
+    <com.digitalrelay.sortablelist.Listeners.TouchList
+        android:id="@+id/touchlist"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
